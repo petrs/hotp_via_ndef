@@ -163,8 +163,8 @@ public class UtilBCD {
      */
     public static void hexToAscii(byte[] input, short inOffset, short inLenght, byte[] output){
         for(short i = (short) 0; i < inLenght; i++){
-            output[(byte) (i*2)] = bcdToAscii((byte) ((input[i + inOffset] & 0xF0) >> 4));
-            output[(byte) (i*2+1)] = bcdToAscii((byte) ((input[i + inOffset] & 0x0F)));
+            output[(byte) (i*2)] = bcdToAscii((byte) ((input[(short) (i + inOffset)] & 0xF0) >> 4));
+            output[(byte) (i*2+1)] = bcdToAscii((byte) ((input[(short)(i + inOffset)] & 0x0F)));
         }
     }
     
