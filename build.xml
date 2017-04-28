@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project basedir="." default="toys" name="AppletPlayground build">
+  <!-- Applet building dependencies -->
+  <property name="JC222" value="ext/java_card_kit-2_2_2"/>
+  
+  <!-- derived from AppletPlayground build.xml -->
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ext/ant-javacard.jar"/>
+  <!-- All included applets -->
+  <target name="toys">
+    <javacard jckit="${JC222}">
+      <!-- ndefOtpGenerator -->
+      <cap output="javacard-ndef.cap" sources="src/cz/muni/fi/crocs" version="1.0">
+        <applet class="cz.muni.fi.crocs.javacard.ndefOtpGenerator.NdefApplet" aid="D2760000850101"/>
+      </cap>
+    </javacard>
+  </target>
+</project>
