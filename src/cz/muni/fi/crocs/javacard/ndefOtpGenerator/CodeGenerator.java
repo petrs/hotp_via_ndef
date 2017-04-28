@@ -19,9 +19,16 @@
 package cz.muni.fi.crocs.javacard.ndefOtpGenerator;
 
 /**
- *
+ * Interface for code generators.
+ * Only useful method is getASCII.
  * @author zelitomas
  */
 public interface CodeGenerator {
+
+    /**
+     * Increments counter and genrates code.
+     * Returns byte array containging the code in ASCII.
+     * @return The code in ASCII
+     */
     public byte[] getAscii();
 }
