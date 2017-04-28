@@ -40,14 +40,14 @@ public class HMACgenerator implements CodeGenerator{
      * 
      * @param key Shared secret to use when generating HMAC
      */
-    public HMACgenerator(byte key[]){
+    public HMACgenerator(byte key[], short keyLen){
         k_opad = new byte[64];
         k_ipad = new byte[64];
         shaBuffer = new byte[84];
         outBuffer = new byte[20];
         asciiBuffer = new byte[20];
         for (short i = (short) 0; i < (short) 64; i++){
-            if(i < key.length){
+            if(i < keyLen){
                 k_opad[i] = (byte) (key[i] ^ 0x5c);
                 k_ipad[i] = (byte) (key[i] ^ 0x36);
             } else {

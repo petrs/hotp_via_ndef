@@ -478,8 +478,8 @@ public final class NdefApplet extends Applet {
      * 
      * However, this function currently only parses url in this format correctly
      * 
-     * otpauth://hotp/username@server?secret=hexInAscii (no counter, different
-     * format of secret)
+     * otpauth://hotp/username@server?secret=base32endodedsecret (no counter or 
+     * any other paramether allowed, counter always set to 0)
      * 
      * @param data byte array containing recieved ndef message
      * @throws ISOException on error
@@ -543,15 +543,11 @@ public final class NdefApplet extends Applet {
             // TODO: Parse paramethers properly
             index = (short) (index + 8);
             short keyLen = (short) (payloadLen - (index - startOfPayLoad));
-            byte key[];
-            try{
-                key = new byte[(short)(keyLen/2 + keyLen % 2)];
-                UtilBCD.asciiToHex(data, index, keyLen, key);
-            } catch (ArithmeticException e){
-                throw new ISOException((short)0x919E); //Value of the parameter invalid
-            }
+            byte key[] = new byte[(short)(2 * keyLen)];
 
-            counter = new HMACgenerator(key);
+            keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
+
+            counter = new HMACgenerator(key, keyLen);
             return;
         }
         
