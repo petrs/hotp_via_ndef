@@ -82,6 +82,19 @@ public class UtilBCD {
         }
     }
     
+    /**
+     * Converts up to 8 byte value to BCD array.
+     * Lenght of array + outOffset should be always >= 10.
+     * Number is considered to be big-endian.
+     * Output array can be same as input array.
+     * 
+     * @param input Byte array containing number ot convert
+     * @param inOffset Start index of number in input array
+     * @param inLenght Length of number in bytes
+     * @param out Byte array that will be filled with BCD values. 
+     * @param outOffset Start index of output array.
+     * @return Number of digits. Curretly always 10.
+     */
     public static short toBCD(byte[] input, short inOffset, short inLenght, byte[] out, short outOffset){
         Util.arrayFillNonAtomic(buffer, (short) 0, (short) buffer.length, (byte) 0x00);
         for(short index = inOffset; index < (short)(inOffset + inLenght); index++){
@@ -98,15 +111,11 @@ public class UtilBCD {
         return 10; //TODO
     }
     
-    public static byte bcdToAscii(byte input){
-        if(input <= 0x09){
-            return (byte) (input + '0');
-        } else { // propably a hex value??
-            return (byte) (input + 'a' - 10);
-        }
-        
-    }
-    
+    /**
+     * Converts one byte from ASCII to BCD 
+     * @param input BCD value
+     * @return ASCII value
+     */
     public static byte asciiToBcd(byte input){
         if(input >= '0' && input <= '9'){
             return (byte) (input - '0');
@@ -117,43 +126,56 @@ public class UtilBCD {
         
     }
     
+    /**
+     * Converts one byte from BCD to ASCII
+     * @param input BCD value
+     * @return ASCII value
+     */
+    public static byte bcdToAscii(byte input){
+        if(input <= 0x09){
+            return (byte) (input + '0');
+        } else { // propably a hex value??
+            return (byte) (input + 'a' - 10);
+        }
+        
+    }
+    
+    /**
+     * Converts BCD array to ASCII array.
+     * Output is saved into the same array. (input array is changed)
+     * @param input Byte array containing number ot convert in BCD
+     * @param inOffset Start index of number in input array
+     * @param inLenght Length of number in bytes
+     */
     public static void bcdToAscii(byte[] input, short inOffset, short inLenght){
         for(short index = inOffset; index < (short)(inOffset + inLenght); index++){
-            if(input[index] <= 0x09){
-                input[index] = (byte) (input[index] + '0');
-            } else { // propably a hex value??
-                input[index] = (byte) (input[index] + 'a' - 10);
-            }
+            input[index] = bcdToAscii(input[index]);
         }
     }
     
+    /**
+     * Converts array containing binary values to ASCII.
+     * Output length should be at least twice the length of input.
+     * @param input Byte array
+     * @param inOffset Starting index of input
+     * @param inLenght Length of input
+     * @param output Array to store ASCII values
+     */
     public static void hexToAscii(byte[] input, short inOffset, short inLenght, byte[] output){
         for(short i = (short) 0; i < inLenght; i++){
-            output[(byte) (i*2)] = bcdToAscii((byte) ((input[i] & 0xF0) >> 4));
-            output[(byte) (i*2+1)] = bcdToAscii((byte) ((input[i] & 0x0F)));
+            output[(byte) (i*2)] = bcdToAscii((byte) ((input[i + inOffset] & 0xF0) >> 4));
+            output[(byte) (i*2+1)] = bcdToAscii((byte) ((input[i + inOffset] & 0x0F)));
         }
     }
     
-    public static boolean compareByteArrays(byte a[], short aOffset, byte b[], short bOffset, short n) throws IndexOutOfBoundsException{
-        while(n > 0){
-            if(a[(short) (n - 1 + aOffset)] != b[(short) (n - 1 + bOffset)]){
-                return false;
-            }
-            n--;
-        }
-        return true;
-    }
-    
-    public static short findFirstOccurence(byte a[], short aOffset, byte toFind){
-        while(aOffset < a.length){
-            if(a[aOffset] == toFind){
-                return aOffset;
-            }
-            aOffset++;
-        }
-        return -1;
-    }
-    
+    /**
+     * Converts array containing ASCII values binary array.
+     * Output length should be at least half the length of input.
+     * @param input ASCII array
+     * @param inOffset Starting index of input
+     * @param inLenght Length of input
+     * @param output Array to store binary values. Starts at 0
+     */
     public static void asciiToHex(byte[] input, short inOffset, short inLenght, byte[] output){
         Util.arrayFillNonAtomic(output, (short) 0, (short) (inLenght/2 + inLenght % 2), (byte) 0);
         byte alignment = (byte) (inLenght % 2);
