@@ -461,12 +461,35 @@ public final class NdefApplet extends Applet {
         }
     }
     
+    /**
+     * Parses recieved ndef messages and changes payload and secret accordingly
+     *
+     * If array contains URL (TNF == 1 and type is 'U') or text (type 'T'), its
+     * saved into payload array, so it can be appended with code from generator.
+     * 
+     * If payload starts with otpauth://hotp/, new instance of HMACgenerator is
+     * created and set as default generator.
+     * 
+     * Example of optauth url:
+     * 
+     * otpauth://hotp/username@server?secret=base32endodedsecret?counter=7
+     * 
+     * (Google authenticator format)
+     * 
+     * However, this function currently only parses url in this format correctly
+     * 
+     * otpauth://hotp/username@server?secret=hexInAscii (no counter, different
+     * format of secret)
+     * 
+     * @param data byte array containing recieved ndef message
+     * @throws ISOException on error
+     */
     private void parseData(byte data[]){
         boolean longRecord = false;
         boolean containsID = false;
         short i = 2;
         short idLen = 0;
-        short payloadLen = 0;
+        short payloadLen;
         byte firstByte = data[i];
         i++;
         // | MB  | ME  | CF  |  SR  | IL  |       TNF       |
@@ -510,31 +533,28 @@ public final class NdefApplet extends Applet {
             i = (short) (i + idLen);
         }
         
-        try{
+        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
+            // HOTP URI, process
             short startOfPayLoad = i;
-            if(UtilBCD.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
-                // HOTP URI, process
-                short index = (short) (i + hotpURLIdent.length);
-                // skip username
-                index = UtilBCD.findFirstOccurence(data, index, (byte) '?');
-                
-                // TODO: Parse paramethers properly
-                index = (short) (index + 8);
-                short keyLen = (short) (payloadLen - (index - startOfPayLoad));
-                byte key[];
-                try{
-                    key = new byte[(short)(keyLen/2 + keyLen % 2)];
-                    UtilBCD.asciiToHex(data, index, keyLen, key);
-                } catch (ArithmeticException e){
-                    throw new ISOException((short)0x919E); //Value of the parameter invalid
-                }
-                
-                counter = new HMACgenerator(key);
-                return;
+            short index = (short) (i + hotpURLIdent.length);
+            // skip username
+            index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
+
+            // TODO: Parse paramethers properly
+            index = (short) (index + 8);
+            short keyLen = (short) (payloadLen - (index - startOfPayLoad));
+            byte key[];
+            try{
+                key = new byte[(short)(keyLen/2 + keyLen % 2)];
+                UtilBCD.asciiToHex(data, index, keyLen, key);
+            } catch (ArithmeticException e){
+                throw new ISOException((short)0x919E); //Value of the parameter invalid
             }
-        } catch(IndexOutOfBoundsException e){
-            //Not an HOTP URI, continue parsing
+
+            counter = new HMACgenerator(key);
+            return;
         }
+        
         payload = new byte[payloadLen];
         Util.arrayCopyNonAtomic(data, i, payload, (short) 0, payloadLen);
     }
