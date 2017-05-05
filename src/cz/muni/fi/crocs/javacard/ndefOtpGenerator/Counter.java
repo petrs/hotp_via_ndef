@@ -25,14 +25,12 @@ package cz.muni.fi.crocs.javacard.ndefOtpGenerator;
 public class Counter implements CodeGenerator{
     private short counter;
     private byte[] asciiCounter;
-    private byte[] outbuffer;
     public Counter(){
         this((short) 0);
     }
     public Counter(short initialValue){
         this.counter = initialValue;
         this.asciiCounter = new byte[5];
-        this.outbuffer = new byte[40];
     }
     
 
