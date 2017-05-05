@@ -148,7 +148,9 @@ public final class NdefApplet extends Applet {
     private CodeGenerator counter;
     private boolean changedSinceLastParse;
     private static final byte[] hotpURLIdent = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
-
+    
+    private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
+    private static final byte[] digitsInASCII = {'d', 'i', 'g', 'i', 't', 's', '='};
     /** NDEF data read access policy */
     private byte ndefReadAccess;
     /** NDEF data write access policy */
@@ -536,19 +538,44 @@ public final class NdefApplet extends Applet {
         
         if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
             // HOTP URI, process
+            byte key[] = null;
+            short keyLen = 0;
             short startOfPayLoad = i;
+            short digits = 6;
             short index = (short) (i + hotpURLIdent.length);
             // skip username
             index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
-
-            // TODO: Parse paramethers properly
-            index = (short) (index + 8);
-            short keyLen = (short) (payloadLen - (index - startOfPayLoad));
-            byte key[] = new byte[(short)(2 * keyLen)];
-
-            keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
-
-            counter = new HMACgenerator(key, keyLen);
+            index++;
+            while(index < (short) data.length && index > 0){
+                
+                if(UtilByteArray.compareByteArrays(data, index, 
+                        secretInASCII, (short) 0, (short)secretInASCII.length)){
+                    // set secret
+                    index = (short) (index + secretInASCII.length);
+                    keyLen = (short) (UtilByteArray.findFirstOccurence(data, index, (byte) '&') - index);
+                    if(keyLen < (short) 0){
+                        keyLen = (short) (payloadLen - (index - startOfPayLoad));
+                    }
+                    key = new byte[(short)(2 * keyLen)];
+                    keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
+                    
+                    
+                }else if(UtilByteArray.compareByteArrays(data, index, 
+                        digitsInASCII, (short) 0, (short)digitsInASCII.length)){
+                    index = (short) (index + digitsInASCII.length);
+                    digits = (short) (data[index] - '0');
+                    if (digits <= 0 || digits >= 10){
+                        throw new ISOException(ISO7816.SW_DATA_INVALID);
+                    }
+                }
+                index = (short)(UtilByteArray.findFirstOccurence(data, index, (byte) '&') + 1);
+            }
+            
+            if(key == null || keyLen < 1){
+                throw new ISOException(ISO7816.SW_DATA_INVALID);
+            }
+            counter = new HMACgenerator(key, keyLen, digits);
+            
             return;
         }
         
