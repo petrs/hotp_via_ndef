@@ -588,13 +588,18 @@ public final class NdefApplet extends Applet {
 
         // access the file
         byte[] file = accessFileForRead(selectedFile);
-
+        
         // get and check the read offset
         short offset = Util.getShort(buffer, ISO7816.OFFSET_P1);
         if(offset < 0 || offset >= file.length) {
             ISOException.throwIt(ISO7816.SW_WRONG_P1P2);
         }
-
+        
+        // Update actual data (URL with counter value, URL with HOTP...) only when reading from 0
+        if(file == toReturn && offset == 0){
+            generateData();
+        }
+        
         // determine the output size
         short le = apdu.setOutgoingNoChaining();
         if(le > NDEF_MAX_READ) {
@@ -632,7 +637,6 @@ public final class NdefApplet extends Applet {
             // send directly
             apdu.setOutgoingLength(le);
             apdu.sendBytesLong(file, offset, le);
-            //apdu.sendBytesLong(toReturn, (short) 0, toReturnBytes);
         }
     }
 
@@ -758,8 +762,6 @@ public final class NdefApplet extends Applet {
                 parseData(ndefData);
                 changedSinceLastParse = false;
             }
-            // Generate actual data (URL with counter value, URL with HOTP...)
-            generateData();
             file = toReturn;
             access = ndefReadAccess;
         }
