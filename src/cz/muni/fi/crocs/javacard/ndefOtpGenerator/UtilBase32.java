@@ -61,6 +61,7 @@ public class UtilBase32 {
             }
             outputBitCounter = (short) (outputBitCounter + 5);
         }
+        byteBuffer = 0;
         return (short)(outputBitCounter / 8);
     }
 }

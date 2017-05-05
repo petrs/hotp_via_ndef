@@ -108,6 +108,7 @@ public class UtilBCD {
             }
         }
         Util.arrayCopyNonAtomic(buffer, (short) 0, out, outOffset, (short) 10);
+        Util.arrayFillNonAtomic(buffer, (short) 0, (short) buffer.length, (byte) 0); // Cleaning buffer, as static variables are not protected by firewall
         return 10; //TODO
     }
     

@@ -19,7 +19,7 @@
 
 package cz.muni.fi.crocs.javacard.ndefOtpGenerator;
 /**
- *
+ * Simple counter for testing purposes.
  * @author zelitomas
  */
 public class Counter implements CodeGenerator{
