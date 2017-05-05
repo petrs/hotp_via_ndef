@@ -266,7 +266,7 @@ public final class NdefApplet extends Applet {
         ndefData = makeData(dataSize, initBuf, initOff, initLen);
         
         changedSinceLastParse = false;
-        toReturn = new byte[90];
+        toReturn = new byte[DEFAULT_NDEF_DATA_SIZE];
         counter = new Counter();
         payload = new byte[1];
         // First byte in NDEF text payload is 0
