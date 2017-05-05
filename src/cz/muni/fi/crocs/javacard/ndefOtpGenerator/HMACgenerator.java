@@ -19,6 +19,7 @@
 
 package cz.muni.fi.crocs.javacard.ndefOtpGenerator;
 
+import javacard.framework.Util;
 import javacard.security.MessageDigest;
 
 /**
@@ -33,19 +34,25 @@ public class HMACgenerator implements CodeGenerator{
     private byte[] outBuffer;
     private MessageDigest digest;
     private byte[] asciiBuffer;
+    private byte[] outputCodeDigits;
+    private short digits;
     
     
     // TODO: Finish javadoc
     /**
      * 
      * @param key Shared secret to use when generating HMAC
+     * @param keyLen Length of shared secret in bytes
+     * @param digits Numbers of digits to generate
      */
-    public HMACgenerator(byte key[], short keyLen){
+    public HMACgenerator(byte key[], short keyLen, short digits){
         k_opad = new byte[64];
         k_ipad = new byte[64];
         shaBuffer = new byte[84];
         outBuffer = new byte[20];
-        asciiBuffer = new byte[20];
+        this.digits = digits;
+        asciiBuffer = new byte[10];
+        outputCodeDigits = new byte[digits];
         for (short i = (short) 0; i < (short) 64; i++){
             if(i < keyLen){
                 k_opad[i] = (byte) (key[i] ^ 0x5c);
@@ -56,6 +63,11 @@ public class HMACgenerator implements CodeGenerator{
             }
         }
         digest = MessageDigest.getInstance(MessageDigest.ALG_SHA, true);
+        
+    }
+    
+    public HMACgenerator(byte key[], short keyLen){
+        this(key, keyLen, (short) 6);
     }
     
     private void incrementCounter(){
@@ -103,13 +115,13 @@ public class HMACgenerator implements CodeGenerator{
         return outBuffer;
     }
     
-    public byte[] generateHotp(byte[] asciiBuffer){
+    public byte[] generateHotp(byte[] output){
         byte toAscii[] = generateHmac();
         byte startPositionOfCode = (byte) 0;
         try{
             startPositionOfCode = (byte) (toAscii[19] & 0x0F);
         } catch (Exception e){
-            asciiBuffer[0] = 'c';
+            asciiBuffer[0] = 'e'; // Error
             return asciiBuffer;
         }
         try{
@@ -117,20 +129,21 @@ public class HMACgenerator implements CodeGenerator{
             toAscii[startPositionOfCode] = (byte) (toAscii[startPositionOfCode] & 0x7F);
             UtilBCD.toBCD(toAscii, startPositionOfCode, (short) 4, asciiBuffer, (short) 0);
         } catch (Exception e){
-            asciiBuffer[0] = 'b';
+            asciiBuffer[0] = 'f'; // Error
             return asciiBuffer;
         }
         try{
             UtilBCD.bcdToAscii(asciiBuffer, (short) 0, (short) 10);
         } catch (Exception e){
-            asciiBuffer[0] = 'd';
+            asciiBuffer[0] = 'g'; // Error
             return asciiBuffer;
         }
-        return asciiBuffer;
+        Util.arrayCopyNonAtomic(asciiBuffer, (short) (10 - digits), output, (short) 0, digits);
+        return output;
     }
     
     @Override
     public byte[] getAscii(){
-        return this.generateHotp(asciiBuffer);
+        return this.generateHotp(outputCodeDigits);
     }
 }
