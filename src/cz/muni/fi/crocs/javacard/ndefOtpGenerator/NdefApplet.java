@@ -491,6 +491,7 @@ public final class NdefApplet extends Applet {
         short idLen = 0;
         short payloadLen;
         byte firstByte = data[i];
+        byte possibleNDEFDataType;
         i++;
         // | MB  | ME  | CF  |  SR  | IL  |       TNF       |
         if ((firstByte & 0x80) != 0x80) { //MB != 1
@@ -525,7 +526,7 @@ public final class NdefApplet extends Applet {
         if (typeLength != 1 && data[i] != 'U' && data[i] != 'T') {
             throw new ISOException(ISO7816.SW_DATA_INVALID);
         } else {
-            NDEFtype = data[i];
+            possibleNDEFDataType = data[i];
         }
         i++;
 
@@ -552,6 +553,7 @@ public final class NdefApplet extends Applet {
         }
         
         payload = new byte[payloadLen];
+        NDEFtype = possibleNDEFDataType;
         Util.arrayCopyNonAtomic(data, i, payload, (short) 0, payloadLen);
     }
     
