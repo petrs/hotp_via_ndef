@@ -142,9 +142,10 @@ public final class NdefApplet extends Applet {
     private byte[] ndefData;
     
     private byte[] toReturn;
-    private byte NDEFtype;
+    private byte[] NDEFtypes;
     private short toReturnBytes;
-    private byte[] payload; 
+    private Object[] payloads;
+    private byte payloadCount;
     private CodeGenerator counter;
     private boolean changedSinceLastParse;
     private static final byte[] hotpURLIdent = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
@@ -272,8 +273,11 @@ public final class NdefApplet extends Applet {
         changedSinceLastParse = false;
         toReturn = new byte[DEFAULT_NDEF_DATA_SIZE];
         counter = new Counter();
-        payload = emptyTextPayload;
-        NDEFtype = 0x54; //Text
+        payloads = new Object[10];
+        NDEFtypes = new byte[10];
+        payloads[0] = emptyTextPayload;
+        payloadCount = 1;
+        NDEFtypes[0] = (byte) 0x54; //Text
     }
 
     /**
@@ -579,9 +583,10 @@ public final class NdefApplet extends Applet {
             return;
         }
         
-        payload = new byte[payloadLen];
-        NDEFtype = possibleNDEFDataType;
-        Util.arrayCopyNonAtomic(data, i, payload, (short) 0, payloadLen);
+        payloads[payloadCount] = new byte[payloadLen];
+        NDEFtypes[payloadCount] = possibleNDEFDataType;
+        Util.arrayCopyNonAtomic(data, i, (byte[])payloads[payloadCount], (short) 0, payloadLen);
+        payloadCount++;
     }
     
     private void generateData(short start, byte counterASCII[], byte header, byte payload[], byte NDEFtype){
@@ -601,11 +606,24 @@ public final class NdefApplet extends Applet {
     private void generateData(){
         toReturnBytes = 0;
         byte counterASCII[] = counter.getAscii();
-        byte headerFirst = (byte) 0x91; //1001 0001
-        byte headerLast  = (byte) 0x51; //0101 0001
-        generateData((short) (toReturnBytes + 2), counterASCII, (byte) 0x91, emptyTextPayload, (byte) 'T');
-        generateData((short) (toReturnBytes + 2), counterASCII, (byte) 0x51, payload, NDEFtype);
-        
+        if(payloadCount == 1){
+            generateData((short) (toReturnBytes + 2), counterASCII, (byte) 0xD1, (byte[])payloads[0], NDEFtypes[0]);
+        } else {
+            byte header;
+            byte headerFirst  = (byte) 0x91; //1001 0001
+            byte headerMiddle = (byte) 0x11; //0001 0001
+            byte headerLast   = (byte) 0x51; //0101 0001
+            for(short i = 0; i < payloadCount; i++){
+                if(i == 0){
+                    header = headerFirst;
+                } else if(i == (short) (payloadCount - 1)){
+                    header = headerLast;
+                } else {
+                    header = headerMiddle;
+                }
+                generateData((short) (toReturnBytes + 2), counterASCII, header, (byte[]) payloads[i], NDEFtypes[i]);
+            }
+        }
         /*toReturn[2] = (byte) 0xD1; //1101 0001 - header
         toReturn[3] = (byte) 0x01; //Type length is 1
         toReturn[4] = (byte) (payload.length + counterASCII.length); //PayloadLength
