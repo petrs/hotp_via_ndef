@@ -151,6 +151,8 @@ public final class NdefApplet extends Applet {
     
     private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
     private static final byte[] digitsInASCII = {'d', 'i', 'g', 'i', 't', 's', '='};
+    
+    private static final byte[] emptyTextPayload = {'\0'};
     /** NDEF data read access policy */
     private byte ndefReadAccess;
     /** NDEF data write access policy */
@@ -270,9 +272,7 @@ public final class NdefApplet extends Applet {
         changedSinceLastParse = false;
         toReturn = new byte[DEFAULT_NDEF_DATA_SIZE];
         counter = new Counter();
-        payload = new byte[1];
-        // First byte in NDEF text payload is 0
-        payload[0] = '\0';
+        payload = emptyTextPayload;
         NDEFtype = 0x54; //Text
     }
 
@@ -584,10 +584,29 @@ public final class NdefApplet extends Applet {
         Util.arrayCopyNonAtomic(data, i, payload, (short) 0, payloadLen);
     }
     
+    private void generateData(short start, byte counterASCII[], byte header, byte payload[], byte NDEFtype){
+        // Note: First record starts on index 2, not 0
+        toReturn[start] = header;
+        toReturn[(byte) (start + 1)] = (byte) 0x01; //Type length is 1
+        toReturn[(byte) (start + 2)] = (byte) (payload.length + counterASCII.length); //PayloadLength
+        toReturn[(byte) (start + 3)] = NDEFtype; //URL == 0x55, Text == 0x54
+        toReturnBytes = (short) (toReturnBytes + 4 + payload.length + counterASCII.length);
+        toReturn[0] = (byte) ((toReturnBytes & (short) 0xFF00) >> 8);
+        toReturn[1] = (byte) (toReturnBytes & (short) 0x00FF);
+        
+        Util.arrayCopyNonAtomic(payload, (short) 0, toReturn, (short) (start + 4), (short) payload.length);
+        Util.arrayCopyNonAtomic(counterASCII, (short) 0, toReturn, (short) (start + 4 + payload.length), (short) counterASCII.length);
+    }
     
     private void generateData(){
+        toReturnBytes = 0;
         byte counterASCII[] = counter.getAscii();
-        toReturn[2] = (byte) 0xD1; //1101 0001 - header
+        byte headerFirst = (byte) 0x91; //1001 0001
+        byte headerLast  = (byte) 0x51; //0101 0001
+        generateData((short) (toReturnBytes + 2), counterASCII, (byte) 0x91, emptyTextPayload, (byte) 'T');
+        generateData((short) (toReturnBytes + 2), counterASCII, (byte) 0x51, payload, NDEFtype);
+        
+        /*toReturn[2] = (byte) 0xD1; //1101 0001 - header
         toReturn[3] = (byte) 0x01; //Type length is 1
         toReturn[4] = (byte) (payload.length + counterASCII.length); //PayloadLength
         toReturn[5] = NDEFtype; //URL == 0x55, Text == 0x54
@@ -596,7 +615,7 @@ public final class NdefApplet extends Applet {
         toReturn[1] = (byte) (toReturnBytes & (short) 0x00FF);
         
         Util.arrayCopyNonAtomic(payload, (short) 0, toReturn, (short) 6, (short) payload.length);
-        Util.arrayCopyNonAtomic(counterASCII, (short) 0, toReturn, (short) (6 + payload.length), (short) counterASCII.length);
+        Util.arrayCopyNonAtomic(counterASCII, (short) 0, toReturn, (short) (6 + payload.length), (short) counterASCII.length);*/
         
     }
 
