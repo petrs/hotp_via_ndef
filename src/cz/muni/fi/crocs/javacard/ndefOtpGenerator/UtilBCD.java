@@ -161,12 +161,17 @@ public class UtilBCD {
      * @param inOffset Starting index of input
      * @param inLenght Length of input
      * @param output Array to store ASCII values
+     * @param outOffset Offset in output array
      */
-    public static void hexToAscii(byte[] input, short inOffset, short inLenght, byte[] output){
+    public static void hexToAscii(byte[] input, short inOffset, short inLenght, byte[] output, short outOffset){
         for(short i = (short) 0; i < inLenght; i++){
-            output[(byte) (i*2)] = bcdToAscii((byte) ((input[(short) (i + inOffset)] & 0xF0) >> 4));
-            output[(byte) (i*2+1)] = bcdToAscii((byte) ((input[(short)(i + inOffset)] & 0x0F)));
+            output[(byte) (i*2 + outOffset)] = bcdToAscii((byte) ((input[(short) (i + inOffset)] & 0xF0) >> 4));
+            output[(byte) (i*2+1 + outOffset)] = bcdToAscii((byte) ((input[(short)(i + inOffset)] & 0x0F)));
         }
+    }
+    
+    public static void hexToAscii(byte[] input, short inOffset, short inLenght, byte[] output){
+        hexToAscii(input, inOffset, inLenght, output, (short) 0);
     }
     
     /**

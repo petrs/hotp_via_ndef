@@ -132,7 +132,11 @@ public final class NdefApplet extends Applet {
      * Configuration: write access
      */
     static final byte DEFAULT_NDEF_WRITE_ACCESS = FILE_ACCESS_OPEN;
-
+    
+    /**
+     * Configuration: maximum debug bytes
+     */
+    static final short MAX_DEBUG_BYTE = (short) 1000;
 
     /** ID of currently selected file */
     private short selectedFile;
@@ -145,7 +149,9 @@ public final class NdefApplet extends Applet {
     private byte[] toReturn;
     private byte NDEFtype;
     private short toReturnBytes;
-    private byte[] payload;
+    private byte[] payload; 
+    private byte[] debug = null;
+    private short debugoffset = 0;
     private CodeGenerator counter;
     private boolean changedSinceLastParse;
     private static final byte[] hotpURLIdent = {'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
@@ -272,6 +278,9 @@ public final class NdefApplet extends Applet {
         toReturn = new byte[DEFAULT_NDEF_DATA_SIZE];
         counter = new Counter();
         payload = new byte[1];
+        debug = new byte[MAX_DEBUG_BYTE];
+        Util.setShort(debug, (short) 0, (short) 2);
+        debugoffset = 2;
         // First byte in NDEF text payload is 0
         payload[0] = '\0';
         NDEFtype = 0x54; //Text
@@ -383,6 +392,23 @@ public final class NdefApplet extends Applet {
     public void process(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
         byte ins = buffer[ISO7816.OFFSET_INS];
+        short debugLen;
+        
+        if (ins == INS_READ_BINARY){
+            debugLen = 5;
+        } else if(ins == INS_DEBUG){
+            debugLen = 0;
+        } else {
+            debugLen = (short)((buffer[ISO7816.OFFSET_LC] & 0xFF) + 5);
+        }
+        
+        if((short) (debugLen + debugoffset) > MAX_DEBUG_BYTE){
+            debugoffset = 2;
+        }
+        
+        Util.arrayCopyNonAtomic(buffer, (short) 0, debug, debugoffset, debugLen);
+        debugoffset = (short)((debugoffset + debugLen));
+        Util.setShort(debug, (short) 0, debugoffset);
         
         // handle selection of the applet
         if(selectingApplet()) {
@@ -411,6 +437,9 @@ public final class NdefApplet extends Applet {
                         ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
                     }
                     break;
+                case INS_DEBUG:
+                    processDebug(apdu);
+                    break;
                 default:
                     ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
             }
@@ -419,6 +448,23 @@ public final class NdefApplet extends Applet {
         }
     }
     
+    private void processDebug(APDU apdu){
+        
+        byte buffer[] = apdu.getBuffer();
+        short offset = Util.getShort(buffer, ISO7816.OFFSET_P1);
+        short le = apdu.setOutgoingNoChaining();
+        if(debugoffset < le){
+            le = debugoffset;
+        }
+        
+        short maxlen = (short) (APDU.getOutBlockSize() - 2);
+        if(maxlen < le){
+            le = maxlen;
+        }
+        apdu.setOutgoingLength(le);
+        apdu.sendBytesLong(debug, offset, le);     
+    }
+
     /**
      * Process a SELECT command
      *
