@@ -48,6 +48,7 @@ public final class NdefApplet extends Applet {
     /* Instructions */
     static final byte INS_SELECT        = ISO7816.INS_SELECT;
     static final byte INS_READ_BINARY   = (byte)0xB0;
+    static final byte INS_DEBUG         = (byte)0xCC;
     static final byte INS_UPDATE_BINARY = (byte)0xD6;
 
     /* File IDs */
@@ -144,10 +145,10 @@ public final class NdefApplet extends Applet {
     private byte[] toReturn;
     private byte NDEFtype;
     private short toReturnBytes;
-    private byte[] payload; 
+    private byte[] payload;
     private CodeGenerator counter;
     private boolean changedSinceLastParse;
-    private static final byte[] hotpURLIdent = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] hotpURLIdent = {'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
     
     private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
     private static final byte[] digitsInASCII = {'d', 'i', 'g', 'i', 't', 's', '='};
@@ -382,7 +383,7 @@ public final class NdefApplet extends Applet {
     public void process(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
         byte ins = buffer[ISO7816.OFFSET_INS];
-
+        
         // handle selection of the applet
         if(selectingApplet()) {
             selectedFile = FILEID_NONE;
@@ -417,7 +418,7 @@ public final class NdefApplet extends Applet {
             ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
         }
     }
-
+    
     /**
      * Process a SELECT command
      *
@@ -536,13 +537,25 @@ public final class NdefApplet extends Applet {
             i = (short) (i + idLen);
         }
         
-        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
+        short index = i; //This is index used for HOTP URI parsing purposes
+        if(possibleNDEFDataType == 'T'){
+            //Text record status byte: 
+            //      7   - Encoding - 1: UTF-16, 0: UTF-8
+            //      6   - Reserved, should be always 0
+            //      5~0 - Length of language code
+            if((data[index] & 0x80) != 0){
+                throw new ISOException(ISO7816.SW_DATA_INVALID); // UTF-16 is not supported, sorry...
+            }
+            index = (short) (index + data[index] & 0x3F); // Language code
+        }
+        index++;
+        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, index, (short) hotpURLIdent.length)){
             // HOTP URI, process
             byte key[] = null;
             short keyLen = 0;
             short startOfPayLoad = i;
             short digits = 6;
-            short index = (short) (i + hotpURLIdent.length);
+            index = (short) (index + hotpURLIdent.length);
             // skip username
             index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
             index++;
@@ -692,7 +705,7 @@ public final class NdefApplet extends Applet {
         if(offset < 0 || offset >= file.length) {
             ISOException.throwIt(ISO7816.SW_WRONG_P1P2);
         }
-
+        
         // get and check the input size
         short lc = (short)(buffer[ISO7816.OFFSET_LC] & 0xFF);
         if(lc > NDEF_MAX_WRITE) {
