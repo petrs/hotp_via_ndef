@@ -142,14 +142,22 @@ public final class NdefApplet extends Applet {
     private byte[] ndefData;
     
     private byte[] toReturn;
+
     private byte[] NDEFtypes;
     private short toReturnBytes;
     private Object[] payloads;
+    // Currently shown message. (OK, error...). If null, standard HOTP payload is used. Reseted on every SELECT command to null.
+    private byte[] messageShown;
     private byte payloadCount;
     private CodeGenerator counter;
+    private AuthProvider lock;
+    private boolean locked;
     private boolean changedSinceLastParse;
-    private static final byte[] hotpURLIdent = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
-    
+    private static final byte[] okData = {0x00, 0x07, (byte)0xD1, 0x01, 0x03, 0x54, 0x00, 0x4F, 0x4B};
+    private static final byte[] hotpURLIdent  = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] hotpLockIdent = {0x00, 'o', 't', 'p', 'l', 'o', 'c', 'k', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] cardCommandUnlockIdent = {0x00, 'c', 'c', ':', '/', '/', 'u', 'n', 'l', 'o', 'c', 'k', '/'};
+    private static final byte[] cardCommandIdent = {0x00, 'c', 'c', ':', '/', '/'};
     private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
     private static final byte[] digitsInASCII = {'d', 'i', 'g', 'i', 't', 's', '='};
     
@@ -275,6 +283,7 @@ public final class NdefApplet extends Applet {
         counter = new Counter();
         payloads = new Object[10];
         NDEFtypes = new byte[10];
+        locked = false;
         payloads[0] = emptyTextPayload;
         payloadCount = 1;
         NDEFtypes[0] = (byte) 0x54; //Text
@@ -465,6 +474,9 @@ public final class NdefApplet extends Applet {
             default:
                 ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
         }
+        
+        // reset shown message
+        messageShown = null;
     }
     
     /**
@@ -478,14 +490,12 @@ public final class NdefApplet extends Applet {
      * 
      * Example of optauth url:
      * 
-     * otpauth://hotp/username@server?secret=base32endodedsecret?counter=7
+     * otpauth://hotp/username@server?secret=base32endodedsecret&digits=6
      * 
      * (Google authenticator format)
      * 
-     * However, this function currently only parses url in this format correctly
-     * 
-     * otpauth://hotp/username@server?secret=base32endodedsecret (no counter or 
-     * any other paramether allowed, counter always set to 0)
+     * This implementation doesn't accept 'counter' or any other parameter, 
+     * counter is always set to 0.
      * 
      * @param data byte array containing recieved ndef message
      * @throws ISOException on error
@@ -540,46 +550,37 @@ public final class NdefApplet extends Applet {
             i = (short) (i + idLen);
         }
         
+        //end of header parsing, payload now starts at i
+
+        if(UtilByteArray.compareByteArrays(cardCommandUnlockIdent, (short) 0, data, i, (short) cardCommandUnlockIdent.length)){
+            if(!locked){
+                throw new ISOException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+            }
+            i = (short) (i + cardCommandUnlockIdent.length);
+            locked = !lock.check(data, i, (short) 6);
+            if(locked){
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
+            return;
+        }
+        
+        if(locked){
+            throw new ISOException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+
         if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
-            // HOTP URI, process
-            byte key[] = null;
-            short keyLen = 0;
-            short startOfPayLoad = i;
-            short digits = 6;
-            short index = (short) (i + hotpURLIdent.length);
-            // skip username
-            index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
-            index++;
-            while(index < (short) data.length && index > 0){
-                
-                if(UtilByteArray.compareByteArrays(data, index, 
-                        secretInASCII, (short) 0, (short)secretInASCII.length)){
-                    // set secret
-                    index = (short) (index + secretInASCII.length);
-                    keyLen = (short) (UtilByteArray.findFirstOccurence(data, index, (byte) '&') - index);
-                    if(keyLen < (short) 0){
-                        keyLen = (short) (payloadLen - (index - startOfPayLoad));
-                    }
-                    key = new byte[(short)(2 * keyLen)];
-                    keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
-                    
-                    
-                }else if(UtilByteArray.compareByteArrays(data, index, 
-                        digitsInASCII, (short) 0, (short)digitsInASCII.length)){
-                    index = (short) (index + digitsInASCII.length);
-                    digits = (short) (data[index] - '0');
-                    if (digits <= 0 || digits >= 10){
-                        throw new ISOException(ISO7816.SW_DATA_INVALID);
-                    }
-                }
-                index = (short)(UtilByteArray.findFirstOccurence(data, index, (byte) '&') + 1);
-            }
-            
-            if(key == null || keyLen < 1){
-                throw new ISOException(ISO7816.SW_DATA_INVALID);
-            }
-            counter = new HMACgenerator(key, keyLen, digits);
-            
+            //This is HOTP URI, process it...
+            counter = processHotpURI(data, payloadLen, i);
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(hotpLockIdent, (short) 0, data, i, (short) hotpLockIdent.length)){
+            lock = processHotpURI(data, payloadLen, i);
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(cardCommandIdent, (short) 0, data, i, (short) cardCommandIdent.length)){
+            processCardCommand(data, payloadLen, i);
             return;
         }
         
@@ -587,6 +588,68 @@ public final class NdefApplet extends Applet {
         NDEFtypes[payloadCount] = possibleNDEFDataType;
         Util.arrayCopyNonAtomic(data, i, (byte[])payloads[payloadCount], (short) 0, payloadLen);
         payloadCount++;
+    }
+    
+    private static final byte[] lockString = {'l', 'o', 'c', 'k'};
+    
+    private void processCardCommand(byte[] data, short payloadLen, short from){
+        short index = (short) (from + cardCommandIdent.length);
+        if(UtilByteArray.compareByteArrays(lockString, (short) 0, data, index, (short) lockString.length)){
+            if(lock == null){
+                ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+            }
+            locked = true;
+            return;
+        }
+        
+        ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        
+    }
+    
+    private HMACgenerator processHotpURI(byte[] data, short payloadLen, short from ){
+        
+        // HOTP URI, process
+        byte key[] = null;
+        short keyLen = 0;
+        short startOfPayLoad = from;
+        short digits = 6;
+        short index = (short) (from + hotpURLIdent.length);
+        // skip username
+        index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
+        index++;
+        
+        //process params
+        while(index < (short) data.length && index > 0){
+
+            if(UtilByteArray.compareByteArrays(data, index, 
+                    secretInASCII, (short) 0, (short)secretInASCII.length)){
+                // set secret
+                index = (short) (index + secretInASCII.length);
+                keyLen = (short) (UtilByteArray.findFirstOccurence(data, index, (byte) '&') - index);
+                if(keyLen < (short) 0){
+                    keyLen = (short) (payloadLen - (index - startOfPayLoad));
+                }
+                key = new byte[(short)(2 * keyLen)];
+                keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
+
+
+            }else if(UtilByteArray.compareByteArrays(data, index, 
+                    digitsInASCII, (short) 0, (short)digitsInASCII.length)){
+                index = (short) (index + digitsInASCII.length);
+                digits = (short) (data[index] - '0');
+                if (digits <= 0 || digits >= 10){
+                    throw new ISOException(ISO7816.SW_DATA_INVALID);
+                }
+            }
+            index = (short)(UtilByteArray.findFirstOccurence(data, index, (byte) '&') + 1);
+        }
+        
+        if(key == null || keyLen < 1){
+            throw new ISOException(ISO7816.SW_DATA_INVALID);
+        }
+        
+        return new HMACgenerator(key, keyLen, digits);
+        
     }
     
     private void generateData(short start, byte counterASCII[], byte header, byte payload[], byte NDEFtype){
@@ -825,10 +888,17 @@ public final class NdefApplet extends Applet {
         }
         if(fileId == FILEID_NDEF_DATA) {
             if(changedSinceLastParse){
-                parseData(ndefData);
+
                 changedSinceLastParse = false;
+                parseData(ndefData);
+                messageShown = okData;
+                
             }
-            file = toReturn;
+            if(messageShown != null){
+                file = messageShown;
+            } else {
+                file = toReturn;
+            }
             access = ndefReadAccess;
         }
         // check that we got anything

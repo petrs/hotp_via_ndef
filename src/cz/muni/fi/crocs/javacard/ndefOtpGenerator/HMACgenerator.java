@@ -19,6 +19,7 @@
 
 package cz.muni.fi.crocs.javacard.ndefOtpGenerator;
 
+import javacard.framework.ISOException;
 import javacard.framework.Util;
 import javacard.security.MessageDigest;
 
@@ -26,10 +27,16 @@ import javacard.security.MessageDigest;
  * \brief Class generating HMAC and calculating HOTP on javacard
  * @author zelitomas
  */
-public class HMACgenerator implements CodeGenerator{
+public class HMACgenerator implements CodeGenerator, AuthProvider{
+    private static final short counterSize = 8;
+    private static final short maxCheckOffset = 10;
+
+
     private byte[] k_ipad;
     private byte[] k_opad;
-    private byte[] counter = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    private byte[] counter;
+    private byte[] counterBeforeCheck;
+    private boolean checking = false;
     private byte[] shaBuffer;
     private byte[] outBuffer;
     private MessageDigest digest;
@@ -46,6 +53,11 @@ public class HMACgenerator implements CodeGenerator{
      * @param digits Numbers of digits to generate
      */
     public HMACgenerator(byte key[], short keyLen, short digits){
+        
+        //Set counter to 0
+        counter = new byte[counterSize];
+        Util.arrayFillNonAtomic(counter, (short) 0, counterSize, (byte) 0);
+        
         k_opad = new byte[64];
         k_ipad = new byte[64];
         shaBuffer = new byte[84];
@@ -118,32 +130,51 @@ public class HMACgenerator implements CodeGenerator{
     public byte[] generateHotp(byte[] output){
         byte toAscii[] = generateHmac();
         byte startPositionOfCode = (byte) 0;
-        try{
-            startPositionOfCode = (byte) (toAscii[19] & 0x0F);
-        } catch (Exception e){
-            asciiBuffer[0] = 'e'; // Error
-            return asciiBuffer;
-        }
-        try{
-            // Warning - outbuffer no longer contains valid hmac!!
-            toAscii[startPositionOfCode] = (byte) (toAscii[startPositionOfCode] & 0x7F);
-            UtilBCD.toBCD(toAscii, startPositionOfCode, (short) 4, asciiBuffer, (short) 0);
-        } catch (Exception e){
-            asciiBuffer[0] = 'f'; // Error
-            return asciiBuffer;
-        }
-        try{
-            UtilBCD.bcdToAscii(asciiBuffer, (short) 0, (short) 10);
-        } catch (Exception e){
-            asciiBuffer[0] = 'g'; // Error
-            return asciiBuffer;
-        }
+        startPositionOfCode = (byte) (toAscii[19] & 0x0F);
+        
+        // Warning - outbuffer no longer contains valid hmac!!
+        toAscii[startPositionOfCode] = (byte) (toAscii[startPositionOfCode] & 0x7F);
+        UtilBCD.toBCD(toAscii, startPositionOfCode, (short) 4, asciiBuffer, (short) 0);
+        UtilBCD.bcdToAscii(asciiBuffer, (short) 0, (short) 10);
         Util.arrayCopyNonAtomic(asciiBuffer, (short) (10 - digits), output, (short) 0, digits);
         return output;
-    }
-    
+    } 
+   
     @Override
     public byte[] getAscii(){
         return this.generateHotp(outputCodeDigits);
+    }
+    
+    @Override
+    public boolean check(byte[] ascii, short offset, short maxLen){
+        
+        if(checking){
+            resetCounter();
+        }
+        
+        // Check length of provided data
+        if(maxLen < digits){
+            return false;
+        }    
+        // Make backup of counter
+        if(counterBeforeCheck == null){
+            counterBeforeCheck = new byte[counterSize];
+        }
+        Util.arrayCopyNonAtomic(counter, (short) 0, counterBeforeCheck, (short) 0, counterSize);
+        checking = true;
+        for(short i = 0; i < maxCheckOffset; i++){
+            if(UtilByteArray.compareByteArrays(getAscii(), (short) 0, ascii, offset, digits)){
+                checking = false;
+                return true;
+            }
+        }
+        
+        resetCounter();
+        return false;
+    }
+    
+    private void resetCounter(){
+        Util.arrayCopyNonAtomic(counterBeforeCheck, (short) 0, counter, (short) 0, counterSize);
+        checking = false;
     }
 }
