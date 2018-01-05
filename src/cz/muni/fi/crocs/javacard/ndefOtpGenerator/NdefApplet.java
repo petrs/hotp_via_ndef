@@ -149,11 +149,23 @@ public final class NdefApplet extends Applet {
     // Currently shown message. (OK, error...). If null, standard HOTP payload is used. Reseted on every SELECT command to null.
     private byte[] messageShown;
     private byte payloadCount;
+    
+    
     private CodeGenerator counter;
     private AuthProvider lock;
+    
+    
     private boolean locked;
+    
+    // Set to true on every write operation, set to false on parse.
     private boolean changedSinceLastParse;
+    
+    // NDEF-endoded "OK" and "e~~~~" messages
     private static final byte[] okData = {0x00, 0x07, (byte)0xD1, 0x01, 0x03, 0x54, 0x00, 0x4F, 0x4B};
+    private byte[] errData = {0x00, 0x0A, (byte)0xD1, 0x01, 0x06, 0x54, 0x00, 0x65, 0x7E, 0x7E, 0x7E, 0x7E};
+    private byte[] shortBuffer = new byte[2];
+    
+    // Pseudo-strings
     private static final byte[] hotpURLIdent  = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
     private static final byte[] hotpLockIdent = {0x00, 'o', 't', 'p', 'l', 'o', 'c', 'k', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
     private static final byte[] cardCommandUnlockIdent = {0x00, 'c', 'c', ':', '/', '/', 'u', 'n', 'l', 'o', 'c', 'k', '/'};
@@ -890,8 +902,17 @@ public final class NdefApplet extends Applet {
             if(changedSinceLastParse){
 
                 changedSinceLastParse = false;
-                parseData(ndefData);
-                messageShown = okData;
+                try{
+                    parseData(ndefData);
+                    messageShown = okData;
+                } catch (ISOException e){
+                    short errorCode = e.getReason();
+                    Util.setShort(shortBuffer, (short) 0, errorCode);
+                    UtilBCD.hexToAscii(shortBuffer, (short) 0, (short) 2, errData, (short) 8);
+                    messageShown = errData;
+                }
+                
+                
                 
             }
             if(messageShown != null){
