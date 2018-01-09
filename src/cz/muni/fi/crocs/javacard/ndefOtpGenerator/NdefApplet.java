@@ -166,12 +166,12 @@ public final class NdefApplet extends Applet {
     private byte[] shortBuffer = new byte[2];
     
     // Pseudo-strings
-    private static final byte[] hotpURLIdent  = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
-    private static final byte[] hotpLockIdent = {0x00, 'o', 't', 'p', 'l', 'o', 'c', 'k', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
-    private static final byte[] pwdLockIdent = {0x00, 'p', 'w', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
-    private static final byte[] hardLockIdent = {0x00, 'h', 'a', 'r', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
-    private static final byte[] cardCommandUnlockIdent = {0x00, 'c', 'c', ':', '/', '/', 'u', 'n', 'l', 'o', 'c', 'k', '/'};
-    private static final byte[] cardCommandIdent = {0x00, 'c', 'c', ':', '/', '/'};
+    private static final byte[] hotpURLIdent  = { 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] hotpLockIdent = { 'o', 't', 'p', 'l', 'o', 'c', 'k', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] pwdLockIdent = { 'p', 'w', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
+    private static final byte[] hardLockIdent = { 'h', 'a', 'r', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
+    private static final byte[] cardCommandUnlockIdent = { 'c', 'c', ':', '/', '/', 'u', 'n', 'l', 'o', 'c', 'k', '/'};
+    private static final byte[] cardCommandIdent = { 'c', 'c', ':', '/', '/'};
     private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
     private static final byte[] digitsInASCII = {'d', 'i', 'g', 'i', 't', 's', '='};
     
@@ -565,16 +565,30 @@ public final class NdefApplet extends Applet {
             i = (short) (i + idLen);
         }
         
+        short contentStart = i; //This is index used for parsing purposes
+        if(possibleNDEFDataType == 'T'){
+            //Text record status byte: 
+            //      7   - Encoding - 1: UTF-16, 0: UTF-8
+            //      6   - Reserved, should be always 0
+            //      5~0 - Length of language code
+            if((data[contentStart] & 0x80) != 0){
+                ISOException.throwIt(ISO7816.SW_DATA_INVALID); // UTF-16 is not supported, sorry...
+            }
+            contentStart = (short) (contentStart + data[contentStart] & 0x3F); // Language code
+        }
+        contentStart++;
+        short contentLength = (short) (payloadLen - (contentStart - i));
+        
         
         //end of header parsing, payload now starts at i
         short payloadStart = i;
         
-        if(UtilByteArray.compareByteArrays(cardCommandUnlockIdent, (short) 0, data, i, (short) cardCommandUnlockIdent.length)){
+        if(UtilByteArray.compareByteArrays(cardCommandUnlockIdent, (short) 0, data, contentStart, (short) cardCommandUnlockIdent.length)){
             if(!locked){
                 ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
             }
-            i = (short) (i + cardCommandUnlockIdent.length);
-            locked = !lock.check(data, i, (short) (payloadLen - cardCommandUnlockIdent.length));
+            contentStart = (short) (contentStart + cardCommandUnlockIdent.length);
+            locked = !lock.check(data, contentStart, (short) (contentLength - cardCommandUnlockIdent.length));
             if(locked){
                 ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             }
@@ -585,30 +599,30 @@ public final class NdefApplet extends Applet {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
 
-        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
+        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, contentStart, (short) hotpURLIdent.length)){
             //This is HOTP URI, process it...
-            counter = processHotpURI(data, payloadLen, i);
+            counter = processHotpURI(data, contentLength, contentStart);
             return;
         }
         
-        if(UtilByteArray.compareByteArrays(hotpLockIdent, (short) 0, data, i, (short) hotpLockIdent.length)){
-            lock = processHotpURI(data, payloadLen, i);
+        if(UtilByteArray.compareByteArrays(hotpLockIdent, (short) 0, data, contentStart, (short) hotpLockIdent.length)){
+            lock = processHotpURI(data, contentLength, contentStart);
             return;
         }
         
-        if(UtilByteArray.compareByteArrays(hardLockIdent, (short) 0, data, i, (short) hardLockIdent.length)){
+        if(UtilByteArray.compareByteArrays(hardLockIdent, (short) 0, data, contentStart, (short) hardLockIdent.length)){
             lock = new HardLock();
             return;
         }
         
-        if(UtilByteArray.compareByteArrays(pwdLockIdent, (short) 0, data, i, (short) pwdLockIdent.length)){
-            i = (short) (i + pwdLockIdent.length);
-            lock = new PasswordLock(data, i, (short) (payloadLen - pwdLockIdent.length));
+        if(UtilByteArray.compareByteArrays(pwdLockIdent, (short) 0, data, contentStart, (short) pwdLockIdent.length)){
+            contentStart = (short) (contentStart + pwdLockIdent.length);
+            lock = new PasswordLock(data, contentStart, (short) (contentLength - pwdLockIdent.length));
             return;
         }
         
-        if(UtilByteArray.compareByteArrays(cardCommandIdent, (short) 0, data, i, (short) cardCommandIdent.length)){
-            processCardCommand(data, payloadLen, i);
+        if(UtilByteArray.compareByteArrays(cardCommandIdent, (short) 0, data, contentStart, (short) cardCommandIdent.length)){
+            processCardCommand(data, contentLength, contentStart);
             return;
         }
         
@@ -618,7 +632,7 @@ public final class NdefApplet extends Applet {
         }
         payloads[payloadCount] = new byte[payloadLen];
         NDEFtypes[payloadCount] = possibleNDEFDataType;
-        Util.arrayCopyNonAtomic(data, i, (byte[])payloads[payloadCount], (short) 0, payloadLen);
+        Util.arrayCopyNonAtomic(data, payloadStart, (byte[])payloads[payloadCount], (short) 0, payloadLen);
         payloadCount++;
     }
     
