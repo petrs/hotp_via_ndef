@@ -525,7 +525,7 @@ public final class NdefApplet extends Applet {
         i++;
         // | MB  | ME  | CF  |  SR  | IL  |       TNF       |
         if ((firstByte & 0x80) != 0x80) { //MB != 1
-            throw new ISOException(ISO7816.SW_DATA_INVALID);
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
         }
 
         //LONG RECORD
@@ -554,7 +554,8 @@ public final class NdefApplet extends Applet {
 
         // Only 'U' (URL) and 'T' (Text) type records are supported
         if (typeLength != 1 && data[i] != 'U' && data[i] != 'T') {
-            throw new ISOException(ISO7816.SW_DATA_INVALID);
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+            return;
         } else {
             possibleNDEFDataType = data[i];
         }
@@ -570,7 +571,7 @@ public final class NdefApplet extends Applet {
         
         if(UtilByteArray.compareByteArrays(cardCommandUnlockIdent, (short) 0, data, i, (short) cardCommandUnlockIdent.length)){
             if(!locked){
-                throw new ISOException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+                ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
             }
             i = (short) (i + cardCommandUnlockIdent.length);
             locked = !lock.check(data, i, (short) (payloadLen - cardCommandUnlockIdent.length));
@@ -581,7 +582,7 @@ public final class NdefApplet extends Applet {
         }
         
         if(locked){
-            throw new ISOException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
 
         if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, i, (short) hotpURLIdent.length)){
@@ -689,14 +690,14 @@ public final class NdefApplet extends Applet {
                 index = (short) (index + digitsInASCII.length);
                 digits = UtilBCD.asciiDigitToByte(data[index]);
                 if (digits == 0){
-                    throw new ISOException(ISO7816.SW_DATA_INVALID);
+                    ISOException.throwIt(ISO7816.SW_DATA_INVALID);
                 }
             }
             index = (short)(UtilByteArray.findFirstOccurence(data, index, (byte) '&') + 1);
         }
         
         if(key == null || keyLen < 1){
-            throw new ISOException(ISO7816.SW_DATA_INVALID);
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
         }
         
         return new HMACgenerator(key, keyLen, digits);
