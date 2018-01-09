@@ -48,7 +48,6 @@ public final class NdefApplet extends Applet {
     /* Instructions */
     static final byte INS_SELECT        = ISO7816.INS_SELECT;
     static final byte INS_READ_BINARY   = (byte)0xB0;
-    static final byte INS_DEBUG         = (byte)0xCC;
     static final byte INS_UPDATE_BINARY = (byte)0xD6;
 
     /* File IDs */
@@ -143,15 +142,40 @@ public final class NdefApplet extends Applet {
     private byte[] ndefData;
     
     private byte[] toReturn;
-    private byte NDEFtype;
+
+    private byte[] NDEFtypes;
     private short toReturnBytes;
-    private byte[] payload;
-    private CodeGenerator counter;
-    private boolean changedSinceLastParse;
-    private static final byte[] hotpURLIdent = {'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private Object[] payloads;
+    // Currently shown message. (OK, error...). If null, standard HOTP payload is used. Reseted on every SELECT command to null.
+    private byte[] messageShown;
+    private byte payloadCount;
     
+    
+    private CodeGenerator counter;
+    private AuthProvider lock;
+    
+    
+    private boolean locked;
+    
+    // Set to true on every write operation, set to false on parse.
+    private boolean changedSinceLastParse;
+    
+    // NDEF-endoded "OK" and "e~~~~" messages
+    private static final byte[] okData = {0x00, 0x07, (byte)0xD1, 0x01, 0x03, 0x54, 0x00, 0x4F, 0x4B};
+    private byte[] errData = {0x00, 0x0A, (byte)0xD1, 0x01, 0x06, 0x54, 0x00, 0x65, 0x7E, 0x7E, 0x7E, 0x7E};
+    private byte[] shortBuffer = new byte[2];
+    
+    // Pseudo-strings
+    private static final byte[] hotpURLIdent  = { 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] hotpLockIdent = { 'o', 't', 'p', 'l', 'o', 'c', 'k', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] pwdLockIdent = { 'p', 'w', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
+    private static final byte[] hardLockIdent = { 'h', 'a', 'r', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
+    private static final byte[] cardCommandUnlockIdent = { 'c', 'c', ':', '/', '/', 'u', 'n', 'l', 'o', 'c', 'k', '/'};
+    private static final byte[] cardCommandIdent = { 'c', 'c', ':', '/', '/'};
     private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
     private static final byte[] digitsInASCII = {'d', 'i', 'g', 'i', 't', 's', '='};
+    
+    private static final byte[] emptyTextPayload = {'\0'};
     /** NDEF data read access policy */
     private byte ndefReadAccess;
     /** NDEF data write access policy */
@@ -271,10 +295,12 @@ public final class NdefApplet extends Applet {
         changedSinceLastParse = false;
         toReturn = new byte[DEFAULT_NDEF_DATA_SIZE];
         counter = new Counter();
-        payload = new byte[1];
-        // First byte in NDEF text payload is 0
-        payload[0] = '\0';
-        NDEFtype = 0x54; //Text
+        payloads = new Object[10];
+        NDEFtypes = new byte[10];
+        locked = false;
+        payloads[0] = emptyTextPayload;
+        payloadCount = 1;
+        NDEFtypes[0] = (byte) 0x54; //Text
     }
 
     /**
@@ -383,7 +409,7 @@ public final class NdefApplet extends Applet {
     public void process(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
         byte ins = buffer[ISO7816.OFFSET_INS];
-        
+
         // handle selection of the applet
         if(selectingApplet()) {
             selectedFile = FILEID_NONE;
@@ -418,7 +444,7 @@ public final class NdefApplet extends Applet {
             ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
         }
     }
-    
+
     /**
      * Process a SELECT command
      *
@@ -462,6 +488,9 @@ public final class NdefApplet extends Applet {
             default:
                 ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
         }
+        
+        // reset shown message
+        messageShown = null;
     }
     
     /**
@@ -475,14 +504,12 @@ public final class NdefApplet extends Applet {
      * 
      * Example of optauth url:
      * 
-     * otpauth://hotp/username@server?secret=base32endodedsecret?counter=7
+     * otpauth://hotp/username@server?secret=base32endodedsecret&digits=6
      * 
      * (Google authenticator format)
      * 
-     * However, this function currently only parses url in this format correctly
-     * 
-     * otpauth://hotp/username@server?secret=base32endodedsecret (no counter or 
-     * any other paramether allowed, counter always set to 0)
+     * This implementation doesn't accept 'counter' or any other parameter, 
+     * counter is always set to 0.
      * 
      * @param data byte array containing recieved ndef message
      * @throws ISOException on error
@@ -498,7 +525,7 @@ public final class NdefApplet extends Applet {
         i++;
         // | MB  | ME  | CF  |  SR  | IL  |       TNF       |
         if ((firstByte & 0x80) != 0x80) { //MB != 1
-            throw new ISOException(ISO7816.SW_DATA_INVALID);
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
         }
 
         //LONG RECORD
@@ -527,7 +554,8 @@ public final class NdefApplet extends Applet {
 
         // Only 'U' (URL) and 'T' (Text) type records are supported
         if (typeLength != 1 && data[i] != 'U' && data[i] != 'T') {
-            throw new ISOException(ISO7816.SW_DATA_INVALID);
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+            return;
         } else {
             possibleNDEFDataType = data[i];
         }
@@ -537,70 +565,195 @@ public final class NdefApplet extends Applet {
             i = (short) (i + idLen);
         }
         
-        short index = i; //This is index used for HOTP URI parsing purposes
+        short contentStart = i; //This is index used for parsing purposes
         if(possibleNDEFDataType == 'T'){
             //Text record status byte: 
             //      7   - Encoding - 1: UTF-16, 0: UTF-8
             //      6   - Reserved, should be always 0
             //      5~0 - Length of language code
-            if((data[index] & 0x80) != 0){
-                throw new ISOException(ISO7816.SW_DATA_INVALID); // UTF-16 is not supported, sorry...
+            if((data[contentStart] & 0x80) != 0){
+                ISOException.throwIt(ISO7816.SW_DATA_INVALID); // UTF-16 is not supported, sorry...
             }
-            index = (short) (index + data[index] & 0x3F); // Language code
+            contentStart = (short) (contentStart + data[contentStart] & 0x3F); // Language code
         }
-        index++;
-        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, index, (short) hotpURLIdent.length)){
-            // HOTP URI, process
-            byte key[] = null;
-            short keyLen = 0;
-            short startOfPayLoad = i;
-            short digits = 6;
-            index = (short) (index + hotpURLIdent.length);
-            // skip username
-            index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
-            index++;
-            while(index < (short) data.length && index > 0){
-                
-                if(UtilByteArray.compareByteArrays(data, index, 
-                        secretInASCII, (short) 0, (short)secretInASCII.length)){
-                    // set secret
-                    index = (short) (index + secretInASCII.length);
-                    keyLen = (short) (UtilByteArray.findFirstOccurence(data, index, (byte) '&') - index);
-                    if(keyLen < (short) 0){
-                        keyLen = (short) (payloadLen - (index - startOfPayLoad));
-                    }
-                    key = new byte[(short)(2 * keyLen)];
-                    keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
-                    
-                    
-                }else if(UtilByteArray.compareByteArrays(data, index, 
-                        digitsInASCII, (short) 0, (short)digitsInASCII.length)){
-                    index = (short) (index + digitsInASCII.length);
-                    digits = (short) (data[index] - '0');
-                    if (digits <= 0 || digits >= 10){
-                        throw new ISOException(ISO7816.SW_DATA_INVALID);
-                    }
-                }
-                index = (short)(UtilByteArray.findFirstOccurence(data, index, (byte) '&') + 1);
+        contentStart++;
+        short contentLength = (short) (payloadLen - (contentStart - i));
+        
+        
+        //end of header parsing, payload now starts at i
+        short payloadStart = i;
+        
+        if(UtilByteArray.compareByteArrays(cardCommandUnlockIdent, (short) 0, data, contentStart, (short) cardCommandUnlockIdent.length)){
+            if(!locked){
+                ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+            }
+            contentStart = (short) (contentStart + cardCommandUnlockIdent.length);
+            locked = !lock.check(data, contentStart, (short) (contentLength - cardCommandUnlockIdent.length));
+            if(locked){
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
+            return;
+        }
+        
+        if(locked){
+            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+
+        if(UtilByteArray.compareByteArrays(hotpURLIdent, (short) 0, data, contentStart, (short) hotpURLIdent.length)){
+            //This is HOTP URI, process it...
+            counter = processHotpURI(data, contentLength, contentStart);
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(hotpLockIdent, (short) 0, data, contentStart, (short) hotpLockIdent.length)){
+            lock = processHotpURI(data, contentLength, contentStart);
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(hardLockIdent, (short) 0, data, contentStart, (short) hardLockIdent.length)){
+            lock = new HardLock();
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(pwdLockIdent, (short) 0, data, contentStart, (short) pwdLockIdent.length)){
+            contentStart = (short) (contentStart + pwdLockIdent.length);
+            lock = new PasswordLock(data, contentStart, (short) (contentLength - pwdLockIdent.length));
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(cardCommandIdent, (short) 0, data, contentStart, (short) cardCommandIdent.length)){
+            processCardCommand(data, contentLength, contentStart);
+            return;
+        }
+        
+        // Replace default payload if needed
+        if(payloadCount == 1 && payloads[0] == emptyTextPayload){
+            payloadCount--;
+        }
+        payloads[payloadCount] = new byte[payloadLen];
+        NDEFtypes[payloadCount] = possibleNDEFDataType;
+        Util.arrayCopyNonAtomic(data, payloadStart, (byte[])payloads[payloadCount], (short) 0, payloadLen);
+        payloadCount++;
+    }
+    
+    private static final byte[] lockString = {'l', 'o', 'c', 'k'};
+    private static final byte[] removeString = {'r', 'e', 'm', 'o', 'v', 'e', '/'};
+    
+    private void processCardCommand(byte[] data, short payloadLen, short from){
+        short index = (short) (from + cardCommandIdent.length);
+        if(UtilByteArray.compareByteArrays(lockString, (short) 0, data, index, (short) lockString.length)){
+            if(lock == null){
+                ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+            }
+            locked = true;
+            return;
+        }
+        if(UtilByteArray.compareByteArrays(removeString, (short) 0, data, index, (short) removeString.length)){
+            index = (short) (index + removeString.length);
+            byte toRemove = UtilBCD.asciiDigitToByte(data[index]);
+            if(payloadCount == 1 || toRemove >= payloadCount) {
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
+            payloadCount--;
+            for(byte i = toRemove; i < payloadCount; i++){
+                payloads[i] = payloads[(byte) (i+1)];
+                NDEFtypes[i] = NDEFtypes[(byte) (i+1)];
             }
             
-            if(key == null || keyLen < 1){
-                throw new ISOException(ISO7816.SW_DATA_INVALID);
-            }
-            counter = new HMACgenerator(key, keyLen, digits);
+            // TODO: consider using requestObjectDeletion() if card supports it
+            // Warning: https://stackoverflow.com/questions/28147582/javacard-power-loss-during-garbage-collection
+            // 
             
             return;
         }
         
-        payload = new byte[payloadLen];
-        NDEFtype = possibleNDEFDataType;
-        Util.arrayCopyNonAtomic(data, i, payload, (short) 0, payloadLen);
+        
+        ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        
     }
     
+    private HMACgenerator processHotpURI(byte[] data, short payloadLen, short from ){
+        
+        // HOTP URI, process
+        byte key[] = null;
+        short keyLen = 0;
+        short startOfPayLoad = from;
+        short digits = 6;
+        short index = (short) (from + hotpURLIdent.length);
+        // skip username
+        index = UtilByteArray.findFirstOccurence(data, index, (byte) '?');
+        index++;
+        
+        //process params
+        while(index < (short) data.length && index > 0){
+
+            if(UtilByteArray.compareByteArrays(data, index, 
+                    secretInASCII, (short) 0, (short)secretInASCII.length)){
+                // set secret
+                index = (short) (index + secretInASCII.length);
+                keyLen = (short) (UtilByteArray.findFirstOccurence(data, index, (byte) '&') - index);
+                if(keyLen < (short) 0){
+                    keyLen = (short) (payloadLen - (index - startOfPayLoad));
+                }
+                key = new byte[(short)(2 * keyLen)];
+                keyLen = UtilBase32.base32toByteArray(data, index, keyLen, key, (short) 0);
+
+
+            }else if(UtilByteArray.compareByteArrays(data, index, 
+                    digitsInASCII, (short) 0, (short)digitsInASCII.length)){
+                index = (short) (index + digitsInASCII.length);
+                digits = UtilBCD.asciiDigitToByte(data[index]);
+                if (digits == 0){
+                    ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                }
+            }
+            index = (short)(UtilByteArray.findFirstOccurence(data, index, (byte) '&') + 1);
+        }
+        
+        if(key == null || keyLen < 1){
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+        }
+        
+        return new HMACgenerator(key, keyLen, digits);
+        
+    }
+    
+    private void generateData(short start, byte counterASCII[], byte header, byte payload[], byte NDEFtype){
+        // Note: First record starts on index 2, not 0
+        toReturn[start] = header;
+        toReturn[(byte) (start + 1)] = (byte) 0x01; //Type length is 1
+        toReturn[(byte) (start + 2)] = (byte) (payload.length + counterASCII.length); //PayloadLength
+        toReturn[(byte) (start + 3)] = NDEFtype; //URL == 0x55, Text == 0x54
+        toReturnBytes = (short) (toReturnBytes + 4 + payload.length + counterASCII.length);
+        toReturn[0] = (byte) ((toReturnBytes & (short) 0xFF00) >> 8);
+        toReturn[1] = (byte) (toReturnBytes & (short) 0x00FF);
+        
+        Util.arrayCopyNonAtomic(payload, (short) 0, toReturn, (short) (start + 4), (short) payload.length);
+        Util.arrayCopyNonAtomic(counterASCII, (short) 0, toReturn, (short) (start + 4 + payload.length), (short) counterASCII.length);
+    }
     
     private void generateData(){
+        toReturnBytes = 0;
         byte counterASCII[] = counter.getAscii();
-        toReturn[2] = (byte) 0xD1; //1101 0001 - header
+        if(payloadCount == 1){
+            generateData((short) (toReturnBytes + 2), counterASCII, (byte) 0xD1, (byte[])payloads[0], NDEFtypes[0]);
+        } else {
+            byte header;
+            byte headerFirst  = (byte) 0x91; //1001 0001
+            byte headerMiddle = (byte) 0x11; //0001 0001
+            byte headerLast   = (byte) 0x51; //0101 0001
+            for(short i = 0; i < payloadCount; i++){
+                if(i == 0){
+                    header = headerFirst;
+                } else if(i == (short) (payloadCount - 1)){
+                    header = headerLast;
+                } else {
+                    header = headerMiddle;
+                }
+                generateData((short) (toReturnBytes + 2), counterASCII, header, (byte[]) payloads[i], NDEFtypes[i]);
+            }
+        }
+        /*toReturn[2] = (byte) 0xD1; //1101 0001 - header
         toReturn[3] = (byte) 0x01; //Type length is 1
         toReturn[4] = (byte) (payload.length + counterASCII.length); //PayloadLength
         toReturn[5] = NDEFtype; //URL == 0x55, Text == 0x54
@@ -609,7 +762,7 @@ public final class NdefApplet extends Applet {
         toReturn[1] = (byte) (toReturnBytes & (short) 0x00FF);
         
         Util.arrayCopyNonAtomic(payload, (short) 0, toReturn, (short) 6, (short) payload.length);
-        Util.arrayCopyNonAtomic(counterASCII, (short) 0, toReturn, (short) (6 + payload.length), (short) counterASCII.length);
+        Util.arrayCopyNonAtomic(counterASCII, (short) 0, toReturn, (short) (6 + payload.length), (short) counterASCII.length);*/
         
     }
 
@@ -705,7 +858,7 @@ public final class NdefApplet extends Applet {
         if(offset < 0 || offset >= file.length) {
             ISOException.throwIt(ISO7816.SW_WRONG_P1P2);
         }
-        
+
         // get and check the input size
         short lc = (short)(buffer[ISO7816.OFFSET_LC] & 0xFF);
         if(lc > NDEF_MAX_WRITE) {
@@ -801,10 +954,26 @@ public final class NdefApplet extends Applet {
         }
         if(fileId == FILEID_NDEF_DATA) {
             if(changedSinceLastParse){
-                parseData(ndefData);
+
                 changedSinceLastParse = false;
+                try{
+                    parseData(ndefData);
+                    messageShown = okData;
+                } catch (ISOException e){
+                    short errorCode = e.getReason();
+                    Util.setShort(shortBuffer, (short) 0, errorCode);
+                    UtilBCD.hexToAscii(shortBuffer, (short) 0, (short) 2, errData, (short) 8);
+                    messageShown = errData;
+                }
+                
+                
+                
             }
-            file = toReturn;
+            if(messageShown != null){
+                file = messageShown;
+            } else {
+                file = toReturn;
+            }
             access = ndefReadAccess;
         }
         // check that we got anything

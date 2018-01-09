@@ -2,6 +2,10 @@
 <project basedir="." default="applet" name="AppletPlayground build">
   <!-- Applet building dependencies -->
   <property name="JC222" value="ext/java_card_kit-2_2_2"/>
+
+  <path id="classpath">
+    <fileset dir="${JC222}" includes="**/*.jar"/>
+  </path>
   
   <!-- derived from AppletPlayground build.xml -->
   <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ext/ant-javacard.jar"/>
@@ -13,5 +17,12 @@
         <applet class="cz.muni.fi.crocs.javacard.ndefOtpGenerator.NdefApplet" aid="D2760000850101"/>
       </cap>
     </javacard>
+    <mkdir dir="build/classes"/>
+    <javac
+        srcdir="src"
+        destdir="build/classes"
+        classpathref="classpath"/>
+        
+    <jar destfile="build/build.jar" basedir="build/classes"/>
   </target>
 </project>
