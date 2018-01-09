@@ -18,6 +18,8 @@
  */
 package cz.muni.fi.crocs.javacard.ndefOtpGenerator;
 
+import javacard.framework.ISO7816;
+import javacard.framework.ISOException;
 import javacard.framework.Util;
 
 /**
@@ -193,6 +195,14 @@ public class UtilBCD {
             }
             output[ialign] = (byte) (in | (byte)(asciiToBcd(input[(short)(inOffset + i)]) << shift));
         }
+    }
+    
+    public static byte asciiDigitToByte(byte digit){
+        digit = (byte) (digit - '0');
+        if (digit < 0 || digit >= 10){
+            throw new ISOException(ISO7816.SW_DATA_INVALID);
+        }
+        return digit;
     }
     
 }

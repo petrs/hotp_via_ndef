@@ -168,6 +168,8 @@ public final class NdefApplet extends Applet {
     // Pseudo-strings
     private static final byte[] hotpURLIdent  = {0x00, 'o', 't', 'p', 'a', 'u', 't', 'h', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
     private static final byte[] hotpLockIdent = {0x00, 'o', 't', 'p', 'l', 'o', 'c', 'k', ':', '/', '/', 'h', 'o', 't', 'p', '/'};
+    private static final byte[] pwdLockIdent = {0x00, 'p', 'w', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
+    private static final byte[] hardLockIdent = {0x00, 'h', 'a', 'r', 'd', 'l', 'o', 'c', 'k', ':', '/', '/'};
     private static final byte[] cardCommandUnlockIdent = {0x00, 'c', 'c', ':', '/', '/', 'u', 'n', 'l', 'o', 'c', 'k', '/'};
     private static final byte[] cardCommandIdent = {0x00, 'c', 'c', ':', '/', '/'};
     private static final byte[] secretInASCII = {'s', 'e', 'c', 'r', 'e', 't', '='};
@@ -562,14 +564,16 @@ public final class NdefApplet extends Applet {
             i = (short) (i + idLen);
         }
         
+        
         //end of header parsing, payload now starts at i
-
+        short payloadStart = i;
+        
         if(UtilByteArray.compareByteArrays(cardCommandUnlockIdent, (short) 0, data, i, (short) cardCommandUnlockIdent.length)){
             if(!locked){
                 throw new ISOException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
             }
             i = (short) (i + cardCommandUnlockIdent.length);
-            locked = !lock.check(data, i, (short) 6);
+            locked = !lock.check(data, i, (short) (payloadLen - cardCommandUnlockIdent.length));
             if(locked){
                 ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             }
@@ -591,11 +595,26 @@ public final class NdefApplet extends Applet {
             return;
         }
         
+        if(UtilByteArray.compareByteArrays(hardLockIdent, (short) 0, data, i, (short) hardLockIdent.length)){
+            lock = new HardLock();
+            return;
+        }
+        
+        if(UtilByteArray.compareByteArrays(pwdLockIdent, (short) 0, data, i, (short) pwdLockIdent.length)){
+            i = (short) (i + pwdLockIdent.length);
+            lock = new PasswordLock(data, i, (short) (payloadLen - pwdLockIdent.length));
+            return;
+        }
+        
         if(UtilByteArray.compareByteArrays(cardCommandIdent, (short) 0, data, i, (short) cardCommandIdent.length)){
             processCardCommand(data, payloadLen, i);
             return;
         }
         
+        // Replace default payload if needed
+        if(payloadCount == 1 && payloads[0] == emptyTextPayload){
+            payloadCount--;
+        }
         payloads[payloadCount] = new byte[payloadLen];
         NDEFtypes[payloadCount] = possibleNDEFDataType;
         Util.arrayCopyNonAtomic(data, i, (byte[])payloads[payloadCount], (short) 0, payloadLen);
@@ -603,6 +622,7 @@ public final class NdefApplet extends Applet {
     }
     
     private static final byte[] lockString = {'l', 'o', 'c', 'k'};
+    private static final byte[] removeString = {'r', 'e', 'm', 'o', 'v', 'e', '/'};
     
     private void processCardCommand(byte[] data, short payloadLen, short from){
         short index = (short) (from + cardCommandIdent.length);
@@ -613,6 +633,25 @@ public final class NdefApplet extends Applet {
             locked = true;
             return;
         }
+        if(UtilByteArray.compareByteArrays(removeString, (short) 0, data, index, (short) removeString.length)){
+            index = (short) (index + removeString.length);
+            byte toRemove = UtilBCD.asciiDigitToByte(data[index]);
+            if(payloadCount == 1 || toRemove >= payloadCount) {
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
+            payloadCount--;
+            for(byte i = toRemove; i < payloadCount; i++){
+                payloads[i] = payloads[(byte) (i+1)];
+                NDEFtypes[i] = NDEFtypes[(byte) (i+1)];
+            }
+            
+            // TODO: consider using requestObjectDeletion() if card supports it
+            // Warning: https://stackoverflow.com/questions/28147582/javacard-power-loss-during-garbage-collection
+            // 
+            
+            return;
+        }
+        
         
         ISOException.throwIt(ISO7816.SW_WRONG_DATA);
         
@@ -648,8 +687,8 @@ public final class NdefApplet extends Applet {
             }else if(UtilByteArray.compareByteArrays(data, index, 
                     digitsInASCII, (short) 0, (short)digitsInASCII.length)){
                 index = (short) (index + digitsInASCII.length);
-                digits = (short) (data[index] - '0');
-                if (digits <= 0 || digits >= 10){
+                digits = UtilBCD.asciiDigitToByte(data[index]);
+                if (digits == 0){
                     throw new ISOException(ISO7816.SW_DATA_INVALID);
                 }
             }
