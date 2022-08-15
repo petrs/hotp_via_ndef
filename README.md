@@ -6,11 +6,17 @@ As a result, phone will display prompt to visit URL with current OTP code. No in
 
 ## Initialization
 
-> More detailed instructions with screenshots are available on the project wiki.
+To avoid initialization problems:
+- first upload the HOTP secret. Example: `otpauth://hotp/?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ=&digits=6`
+- then upload the desired URL. Example: `http://hotp.zelitomas.cf/?key=`
 
+Both tags must be uploaded separately (i.e. not simultaneously as possible with [NFC Tools](https://play.google.com/store/apps/details?id=com.wakdev.wdnfc).
+
+> More detailed instructions with screenshots are available on the project wiki.
+> 
 ### Setting URL
 
-Using nfc tag writing application (like [this one](https://play.google.com/store/apps/details?id=com.wakdev.wdnfc&hl=cs)) write URL to which you would like to be redirected , for example
+Using nfc tag writing application (like [NFC Tools](https://play.google.com/store/apps/details?id=com.wakdev.wdnfc)) write URL to which you would like to be redirected , for example
 
     http://hotp.zelitomas.cf/?key=
 
@@ -24,11 +30,13 @@ Check the address by tapping your card to NFC-enabled phone (simple counter is u
 
 The card accepts otpauth URLs in this format:
 
-    otpauth://hotp/username@server/?secret=base32encodedsecret
+    otpauth://hotp/username@server/?secret=[base32 encoded secret]
 
 (Google Authenticator HOTP URL without counter parameter)
 
-Write with your favorite NFC tag writing application. Counter is always set to 0 when new secret is set.
+Write with your favorite NFC tag writing application. Counter is always set to 0 when new secret is set. Also, we recommend setting the required number of digits:
+
+    otpauth://hotp/username@server/?secret=[base32 encoded secret]&digits=[desired number of digits]
 
 ## Credits
 
